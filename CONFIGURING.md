@@ -28,15 +28,26 @@ Identity and timers used on the CC-CC side; there's only one of this table.
 |---|---|
 | `log_level` | `DEBUG`, `INFO`, `WARNING`, or `ERROR`. |
 | `cc_site_name` | Presented as this program's site name in the CC-CC handshake. Informational only — not validated by the remote (formal spec §4.3) — but it'll show up in the far Control Center's logs, so pick something recognizable. |
-| `cc_mac_address` | 12 hex characters, presented in the handshake. Purely informational; any value works. |
-| `cc_code_revision`, `cc_version`, `cc_os_version` | Free-text handshake fields. Not validated; cosmetic. |
+| `cc_mac_address` | 12 hex characters, presented in the handshake. Appears cosmetic; any value works. |
+| `cc_version`, `cc_os_version` | Free-text handshake fields. Appear cosmetic. |
+| `cc_code_revision` | Free-text handshake field, presented as a build/revision number. What the c-Bridge actually *does* with this one isn't fully known — see the note below. |
 | `cc_keepalive_interval` | Seconds between originated CC-CC keepalives. Leave at the default (`10`) unless you have a specific reason not to — this is the protocol's own documented cadence. |
 | `cc_link_timeout` | Seconds without a received keepalive before a CC-CC link is declared dead and torn down. Should be a few multiples of `cc_keepalive_interval`. |
 
 None of these fields are validated by the remote beyond the codec/frame-size
 fields in the handshake (always `AMBE`/`60`, which `cc2obp` sends
-automatically — you don't configure them). Nothing here needs to be
-coordinated with anyone; it's purely how *you* identify yourself.
+automatically — you don't configure them) — the connection doesn't get
+rejected over any of them. Nothing here needs to be coordinated with anyone;
+it's purely how *you* identify yourself. That said, "not validated" isn't
+the same as "confirmed inert": the c-Bridge is known to log a message
+indicating it tries to match features against the `cc_code_revision` value
+specifically. What that matching actually changes, if anything, isn't
+known — these values were arrived at by interoperability analysis, not
+vendor documentation (see the top-level `NOTICE` in `README.md`). In
+practice this hasn't caused observed problems with the default sample
+value, but if you hit odd behavior on a link and everything else in this
+file checks out, `cc_code_revision` is one of the few remaining unknowns
+worth varying.
 
 ## `[[openbridge]]` — one per remote peer
 

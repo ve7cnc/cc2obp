@@ -268,6 +268,7 @@ transport) to restrict access to the link ports.
 | Codec values | Only `AMBE` is known. |
 | Concurrent links | Verified with two simultaneous links to one remote (§3.1). Behavior at larger scale is assumed, not characterized here. |
 | First voice packet | A receiver MAY miss the first (sequence 0) voice packet of a call if it arrives before the B-on (§7.1) is processed. A missed frame is a loss; it MUST NOT be synthesized. |
+| Code revision (§4.1 field 6) | Not validated against the connection (no rejection observed for any value), but the c-Bridge is known to log a message indicating it attempts to match features against this value. What, if anything, that matching actually changes is unknown. No observed problems with an arbitrary value in practice; flagged here as a remaining unknown rather than confirmed-inert. |
 
 ## Appendix A — Annotated Call Lifecycle
 
