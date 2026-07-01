@@ -177,6 +177,22 @@ file is logged at WARNING and ignored until a full restart.
 
 ## Testing your config
 
+Before reloading or restarting a running instance, validate the file on its
+own — this never binds a socket, so it can't conflict with an instance
+that's already using the same ports:
+
+```
+./cc2obp -c cc2obp.toml --check
+```
+
+On success this prints every configured peer and link (name, enabled/
+cross_connect_active state, role, TGID, LID) so you can eyeball that the
+edit did what you meant; on failure it prints every problem found, in the
+same form `config_load` always produces (see "Validation" above), and
+exits 1 without printing a summary.
+
+To actually run it and watch it try to come up:
+
 ```
 ./cc2obp -c cc2obp.toml --log-level DEBUG
 ```

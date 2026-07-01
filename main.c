@@ -54,11 +54,36 @@ static void tick_cb(ev_loop *loop, void *ud)
 static void usage(const char *prog)
 {
     fprintf(stderr,
-        "Usage: %s [-c config.toml] [--log-level LEVEL] [--wire]\n"
+        "Usage: %s [-c config.toml] [--log-level LEVEL] [--wire] [--check]\n"
         "  -c, --config PATH    Path to TOML config (default: /etc/cc2obp/cc2obp.toml)\n"
         "  --log-level LEVEL    Override config log level (DEBUG|INFO|WARNING|ERROR)\n"
-        "  --wire                Log raw CC-CC/OpenBridge hex only; silence everything else\n",
+        "  --wire                Log raw CC-CC/OpenBridge hex only; silence everything else\n"
+        "  --check               Parse and validate the config, print a summary, exit.\n"
+        "                        Never binds a socket — safe to run against a config\n"
+        "                        edit while a real instance is already running on the\n"
+        "                        same ports (e.g. before `systemctl reload`).\n",
         prog);
+}
+
+static void print_check_summary(const Config *cfg)
+{
+    printf("Configuration OK: %d openbridge peer(s), %d link(s)\n\n", cfg->n_openbridge, cfg->n_link);
+
+    for (int i = 0; i < cfg->n_openbridge; i++) {
+        const ObpPeerConfig *o = &cfg->openbridge[i];
+        printf("  [[openbridge]] %-16s %-8s %s:%d (bind_port %d)\n",
+               o->name, o->enabled ? "enabled" : "disabled", o->peer_ip, o->peer_port, o->bind_port);
+    }
+    if (cfg->n_openbridge > 0) printf("\n");
+
+    for (int i = 0; i < cfg->n_link; i++) {
+        const LinkConfig *l = &cfg->link[i];
+        printf("  [[link]] %-20s %-8s xc=%-8s %-8s tgid=%-6d lid=%-3d -> %s (%s)\n",
+               l->name, l->enabled ? "enabled" : "disabled",
+               l->cross_connect_active ? "active" : "inactive",
+               l->cc_role == CC_ROLE_OUTBOUND ? "outbound" : "inbound",
+               l->tgid, l->cc_lid, l->cc_remote_ip, l->openbridge_system);
+    }
 }
 
 int main(int argc, char **argv)
@@ -66,6 +91,7 @@ int main(int argc, char **argv)
     const char *cfg_path = "/etc/cc2obp/cc2obp.toml";
     const char *log_level_override = NULL;
     int wire = 0;
+    int check_mode = 0;
 
     for (int i = 1; i < argc; i++) {
         if ((!strcmp(argv[i], "-c") || !strcmp(argv[i], "--config")) && i + 1 < argc) {
@@ -74,6 +100,8 @@ int main(int argc, char **argv)
             log_level_override = argv[++i];
         } else if (!strcmp(argv[i], "--wire")) {
             wire = 1;
+        } else if (!strcmp(argv[i], "--check")) {
+            check_mode = 1;
         } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             usage(argv[0]); return 0;
         } else {
@@ -84,7 +112,7 @@ int main(int argc, char **argv)
 
     char err[8192];
     if (config_load(cfg_path, &g_cfg, err, sizeof err) != 0) {
-        fprintf(stderr, "Configuration error:\n%s\n", err);
+        fprintf(stderr, "%s\n", err);   /* err is already a complete, framed message (config.c/toml.c) */
         return 1;
     }
 
@@ -95,6 +123,11 @@ int main(int argc, char **argv)
     }
     log_init(level, wire);
     config_warn_soft_issues(&g_cfg);
+
+    if (check_mode) {
+        print_check_summary(&g_cfg);
+        return 0;
+    }
 
     LOGI("cc2obp", "cc2obp starting — %d openbridge peer(s), %d link(s), config=%s",
          g_cfg.n_openbridge, g_cfg.n_link, cfg_path);

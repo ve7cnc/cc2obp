@@ -68,7 +68,20 @@ Edit `/etc/cc2obp/cc2obp.toml`. See `CONFIGURING.md` for a full walkthrough,
 including what you'll need to coordinate with the operator at each end of
 every link before it will come up.
 
-You can test against the config manually before enabling the service:
+Validate the file before touching the running service — `--check` parses
+and validates the config and exits, without binding a single socket, so
+it's safe to run against an edit while a real instance is already using
+the same ports:
+
+```
+/usr/local/bin/cc2obp -c /etc/cc2obp/cc2obp.toml --check
+```
+
+Prints a summary of every configured peer and link on success (exit 0), or
+every problem found on failure (exit 1) — this is the fast way to answer
+"will this reload cleanly?" before running `systemctl reload`.
+
+You can also test against the config manually before enabling the service:
 
 ```
 /usr/local/bin/cc2obp -c /etc/cc2obp/cc2obp.toml --log-level DEBUG
