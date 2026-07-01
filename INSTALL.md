@@ -49,9 +49,8 @@ This follows the usual system conventions:
 | sample  | `/etc/cc2obp/cc2obp.toml.sample`  |
 | service | `/lib/systemd/system/cc2obp.service` |
 
-The service runs as **root** (it binds CC-CC's fixed low-numbered ports —
-TCP 42421, UDP 42422, UDP 42420 — which on most systems requires either root
-or a capability grant). Install paths are overridable:
+The service runs as **root** — it's a background daemon; the systemd unit
+just runs it that way. Install paths are overridable:
 
 ```
 sudo make install PREFIX=/usr SYSCONFDIR=/etc UNITDIR=/etc/systemd/system
