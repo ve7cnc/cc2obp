@@ -1,0 +1,74 @@
+# cc2obp — CC-CC <-> OpenBridge translator sample configuration.
+# See the Project Plan (§6) and CC-CC_Link_Protocol_Specification.md for the
+# full field reference.  Copy to cc2obp.toml and edit before starting.
+
+[global]
+log_level = "INFO"            # DEBUG | INFO | WARNING | ERROR
+
+# Identity presented on the CC-CC control channel (formal spec §4.1/§4.2).
+# These are not validated by the remote beyond codec/ms (§4.3); pick anything
+# recognizable in your own network's logs.
+cc_site_name        = "cc2obp"
+cc_mac_address       = "000000000000"
+cc_code_revision     = "10252"
+cc_version            = "cc2obp 0.1"
+cc_os_version         = "Linux"
+
+cc_keepalive_interval = 10     # seconds, formal spec §8 (~10s)
+cc_link_timeout       = 35     # seconds without a received keepalive -> link dead
+
+# ---------------------------------------------------------------------------
+# OpenBridge peers (§6.1). Any number; each is a distinct remote HBlink3,
+# HBlink4, or other OpenBridge-capable peer, in isolation.
+# ---------------------------------------------------------------------------
+
+[[openbridge]]
+name        = "hblink-a"
+enabled     = true
+peer_ip     = "127.0.0.1"
+peer_port   = 62031          # the REMOTE's port: send-to, and expected source port on receive
+bind_port   = 62031          # OUR OWN local port — independent of peer_port; set equal to it
+                              # (as here) for the common symmetric-port convention, or different
+                              # if e.g. this box already has something else on 62031 locally, or
+                              # you're testing cc2obp against a fake peer on the same host.
+network_id  = 3120000
+passphrase  = "changeme-a"
+
+# [[openbridge]]
+# name        = "hblink-b"
+# enabled     = true
+# peer_ip     = "10.0.0.50"
+# peer_port   = 62032
+# bind_port   = 62032
+# network_id  = 3120001
+# passphrase  = "changeme-b"
+
+# ---------------------------------------------------------------------------
+# CC-CC links (§6.2). Any number; each is a complete, self-contained conduit:
+# its own CC-CC identity AND the single OpenBridge (system, TGID) it
+# cross-connects to — always a strict 1:1:1 pairing (§1).
+# ---------------------------------------------------------------------------
+
+[[link]]
+name                 = "kansas-link"
+enabled              = true
+cross_connect_active = true
+tgid                 = 9
+openbridge_system    = "hblink-a"
+cc_role              = "outbound"
+cc_lid               = 69
+cc_remote_ip         = "203.0.113.18"
+cc_remote_port       = 42421
+cc_remote_voice_port = 42422
+cc_channel_name      = "MYBRIDGE-9"
+
+# [[link]]
+# name                 = "texas-link"
+# enabled              = true
+# cross_connect_active = true
+# tgid                 = 9
+# openbridge_system    = "hblink-b"
+# cc_role              = "inbound"
+# cc_lid               = 69
+# cc_remote_ip         = "203.0.113.5"
+# cc_remote_voice_port = 42422

@@ -1,0 +1,23 @@
+# cc2obp.service — systemd unit.
+# Installed by `sudo make install` to /lib/systemd/system/cc2obp.service.
+
+[Unit]
+Description=CC-CC to OpenBridge translator
+Documentation=https://github.com/n0mjs710/cc2obp
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cc2obp -c /etc/cc2obp/cc2obp.toml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cc2obp
+
+[Install]
+WantedBy=multi-user.target

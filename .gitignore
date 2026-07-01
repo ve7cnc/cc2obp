@@ -1,0 +1,22 @@
+# Live configuration — never commit; copy cc2obp.toml.sample to get started
+cc2obp.toml
+
+# Build artifacts
+*.o
+*.a
+/cc2obp
+
+# Wire captures
+wire.txt
+*.wire
+
+# Claude Code session files
+.claude/
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
