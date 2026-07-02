@@ -161,6 +161,66 @@ Within each 7-byte unit the 49-bit frame is packed most-significant-bit first: b
 0–47 occupy bytes 0–5, bit 48 occupies the most-significant bit of byte 6, and the
 remaining 7 bits of byte 6 are zero padding.
 
+### 6.2.1 AMBE bit order — the c-Bridge lane interleave (REQUIRED)
+
+The 49 bits inside each 7-byte unit are **not** in the ETSI / `dmr_utils3` "d-bit"
+order that the standard 49↔72 AMBE FEC routines expect (`convert49BitTo72BitAMBE`
+/ `convert72BitTo49BitAMBE`, i.e. `dmr_ambe_49_to_72` / `dmr_ambe_72_to_49`, and
+the same order IPSC carries on the wire). The c-Bridge carries them in a fixed
+**3-lane block interleave** of that order. Getting the byte packing (§6.2) right
+but this ordering wrong leaves all call metadata perfect while the audio decodes
+as pure noise — including during silence — in **both** directions. This is the
+single most important and least obvious detail in the whole protocol.
+
+**The transform.** Take the 49 d-bits in ETSI order (`d[0..48]`) and write them
+across a 3-row grid of widths **18 / 18 / 13**, row by row; then read *down* the
+columns. That column read-out is the on-wire bit order (then packed MSB-first per
+§6.2):
+
+```
+              col:  0    1    2   ...  12    13   14   15   16   17
+  lane 0 (18):     d0   d1   d2   ... d12   d13  d14  d15  d16  d17
+  lane 1 (18):    d18  d19  d20   ... d30   d31  d32  d33  d34  d35
+  lane 2 (13):    d36  d37  d38   ... d48    ·    ·    ·    ·    ·     (lane 2 ends at col 12)
+                   │
+                   ▼  read down each column, left to right:
+  wire = d0,d18,d36, d1,d19,d37, d2,d20,d38, … , d12,d30,d48, d13,d31, d14,d32, …
+```
+
+Equivalently: **on-wire bit `j` is ETSI d-bit `PERM[j]`**, i.e. `wire[j] = d[PERM[j]]`.
+
+```c
+/* wire[j] = d[PERM[j]] — column-major read of the 18/18/13 lane grid */
+static const int PERM[49] = {
+     0,18,36, 1,19,37, 2,20,38, 3,21,39, 4,22,40, 5,23,41, 6,24,42,
+     7,25,43, 8,26,44, 9,27,45,10,28,46,11,29,47,12,30,48,13,31,14,
+    32,15,33,16,34,17,35
+};
+```
+
+**Implementation (apply symmetrically).** Do the byte pack/unpack of §6.2, then
+translate between wire order and ETSI order right at that boundary:
+
+```c
+/* RX (CC-CC -> decoder): unpack §6.2 into wire[0..48], then map to ETSI order */
+for (j = 0; j < 49; j++) d[PERM[j]] = wire[j];
+/* feed d[] to dmr_ambe_49_to_72() */
+
+/* TX (encoder -> CC-CC): dmr_ambe_72_to_49() gives d[0..48]; map to wire order */
+for (j = 0; j < 49; j++) wire[j] = d[PERM[j]];
+/* then pack wire[] per §6.2 */
+```
+
+`PERM` is a bijection, so the `pack∘unpack` round trip is the identity. Reference
+implementation: `cccc/cccc_ambe.c` (`cccc_ambe_pack21` / `cccc_ambe_unpack21`).
+
+> **Provenance.** Not documented in the source protocol — the c-Bridge author's
+> notes say only "21 bytes … 3 × 7 bytes." Derived empirically by aligning a
+> paired IPSC-vs-CC-CC capture of one call, and verified bit-exact over hundreds
+> of frames. It is almost certainly just the order the c-Bridge's own parser
+> stores AMBE in internally (the same order it uses IPSC↔IPSC), which never had to
+> be stated because it never crossed an implementation boundary until now.
+
 ## 7. Call Signaling (Control Channel)
 
 Call boundaries are signaled as single text lines on the TCP control channel. No

@@ -1,6 +1,9 @@
-/* cccc_ambe.h — CC-CC 21-byte voice payload <-> 3x49-bit AMBE (spec §6.2).
- * Pure bit-packing; does not touch the AMBE-with-FEC (72-bit) domain — pair
- * with dmr_ambe_49_to_72/dmr_ambe_72_to_49 (dmr/dmr.h) to cross to OpenBridge. */
+/* cccc_ambe.h — CC-CC 21-byte voice payload <-> 3x49-bit AMBE.
+ * ambe49 here is in dmr_utils3/IPSC bit order (what dmr_ambe_49_to_72/
+ * dmr_ambe_72_to_49 in dmr/dmr.h expect); the wire uses the c-Bridge's 3-lane
+ * block-interleaved order, which pack/unpack translate to/from (see cccc_ambe.c
+ * for the empirically-derived permutation). Pure bit reordering + packing; does
+ * not touch the AMBE-with-FEC (72-bit) domain. */
 #ifndef CCCC_AMBE_H
 #define CCCC_AMBE_H
 

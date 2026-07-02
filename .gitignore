@@ -9,6 +9,11 @@ cc2obp.toml
 # Wire captures
 wire.txt
 *.wire
+*.pcap
+
+# Python
+__pycache__/
+*.pyc
 
 # Claude Code session files
 .claude/
