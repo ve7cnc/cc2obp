@@ -116,6 +116,7 @@ static void load_openbridge(const toml *t, errbag *e, Config *cfg)
         o->peer_port = (int)get_int(t, e, sec, "peer_port", 1, 0, 1, 1, 1, 65535);
         o->bind_port = (int)get_int(t, e, sec, "bind_port", 1, 0, 1, 1, 1, 65535);
         o->network_id = (uint32_t)get_int(t, e, sec, "network_id", 1, 0, 1, 0, 0, 0);
+        o->preserve_source_peer = get_bool(t, e, sec, "preserve_source_peer", 0, 0);
         { char pp[256]; get_str(t, e, sec, "passphrase", 1, "", pp, sizeof pp);
           o->passphrase_len = (int)strlen(pp);
           memcpy(o->passphrase, pp, (size_t)o->passphrase_len); }

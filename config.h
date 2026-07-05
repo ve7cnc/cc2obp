@@ -26,6 +26,10 @@ typedef struct {
     uint32_t network_id;
     char     passphrase[256];
     int      passphrase_len;
+    int      preserve_source_peer; /* if set, do NOT overwrite the DMRD Repeater-ID field
+                                     * (bytes 11-14) with network_id on send — forward the
+                                     * originating source-peer instead (unvalidated field;
+                                     * see obp_send_dmrd / translate.c). Default off. */
 } ObpPeerConfig;
 
 typedef struct {

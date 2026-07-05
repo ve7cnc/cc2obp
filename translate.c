@@ -41,6 +41,9 @@ typedef struct {
     call_origin_t origin;
     uint32_t rf_src;
     uint32_t peer_id;          /* OBP-origin only: sender's received network_id (§10.1) */
+    uint32_t cc_peer_id;       /* CC-origin only: source-peer from the B-on, forwarded into
+                                * the outgoing DMRD Repeater-ID field when the peer's
+                                * preserve_source_peer is set (else network_id overwrites it) */
     uint8_t  stream_id[4];
     uint8_t  lc[9];            /* opt(3) + dst_group/tgid(3) + src_sub/rf_src(3) */
     uint8_t  emb[4][4];        /* embedded LC fragments B..E, from dmr_encode_emblc */
@@ -71,6 +74,7 @@ struct translator {
 static uint32_t rd24(const uint8_t *p) { return ((uint32_t)p[0]<<16)|((uint32_t)p[1]<<8)|p[2]; }
 static uint32_t rd32(const uint8_t *p) { return ((uint32_t)p[0]<<24)|((uint32_t)p[1]<<16)|((uint32_t)p[2]<<8)|p[3]; }
 static void wr24(uint8_t *p, uint32_t v) { p[0]=(uint8_t)(v>>16); p[1]=(uint8_t)(v>>8); p[2]=(uint8_t)v; }
+static void wr32(uint8_t *p, uint32_t v) { p[0]=(uint8_t)(v>>24); p[1]=(uint8_t)(v>>16); p[2]=(uint8_t)(v>>8); p[3]=(uint8_t)v; }
 
 static void rand4(uint8_t out[4])
 {
@@ -152,7 +156,9 @@ static void send_dmrd(translator *tr, int link_idx, uint8_t flags, const uint8_t
     body[4] = (uint8_t)(tr->obp_seq_ctr[peer_idx]++ & 0xFF);
     wr24(body + 5, lr->call.rf_src);
     wr24(body + 8, (uint32_t)lcfg->tgid);
-    memset(body + 11, 0, 4);        /* overwritten with our network_id by obp_send_dmrd (§12) */
+    /* Repeater-ID field: seed with the CC-origin source-peer. obp_send_dmrd
+     * overwrites it with our network_id unless preserve_source_peer is set (§12). */
+    wr32(body + 11, lr->call.cc_peer_id);
     body[15] = flags;
     memcpy(body + 16, lr->call.stream_id, 4);
     memcpy(body + 20, payload33, 33);
@@ -338,7 +344,7 @@ void translator_obp_dmrd_received(translator *tr, int peer_idx, const uint8_t bo
 void translator_cccc_bon(translator *tr, int link_idx, uint32_t radio_id, uint32_t peer_id,
                          int src_lid, int tgid, char call_type)
 {
-    (void)peer_id; (void)src_lid; (void)tgid; (void)call_type;
+    (void)src_lid; (void)tgid; (void)call_type;
     /* §5 of the formal spec: TGID/call-type in the incoming B-on reflect the
      * ORIGINATING side and MUST NOT be used for delivery routing — this
      * link's own configured tgid is used instead (already used below). */
@@ -363,6 +369,7 @@ void translator_cccc_bon(translator *tr, int link_idx, uint32_t radio_id, uint32
     memset(&lr->call, 0, sizeof lr->call);
     lr->call.origin = CALL_ORIGIN_CC;
     lr->call.rf_src = radio_id;
+    lr->call.cc_peer_id = peer_id;   /* B-on source-peer; forwarded outbound if preserve_source_peer set */
     rand4(lr->call.stream_id);
     lr->call.call_start_time = ev_now(tr->loop);
     lr->call.last_activity = lr->call.call_start_time;

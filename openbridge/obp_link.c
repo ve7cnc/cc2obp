@@ -119,13 +119,18 @@ void obp_send_dmrd(obp_mux *mx, int peer_idx, uint8_t body[53])
     }
     ObpPeerConfig *o = &mx->cfg->openbridge[peer_idx];
 
-    /* §12: bytes 11-14 (peer/network ID field) overwritten with OUR OWN
-     * network_id for this peer before signing — not anything from the
-     * originating side. */
-    body[OBP_NETID_OFF + 0] = (uint8_t)(o->network_id >> 24);
-    body[OBP_NETID_OFF + 1] = (uint8_t)(o->network_id >> 16);
-    body[OBP_NETID_OFF + 2] = (uint8_t)(o->network_id >> 8);
-    body[OBP_NETID_OFF + 3] = (uint8_t)(o->network_id);
+    /* §12: bytes 11-14 (peer/network ID field) are normally overwritten with
+     * OUR OWN network_id for this peer before signing — not anything from the
+     * originating side. This field is not validated by the reference
+     * implementation (auth = HMAC + source socket), so preserve_source_peer
+     * leaves whatever the caller placed there (the CC-origin source-peer, set
+     * by send_dmrd) intact for end-to-end provenance. Default: overwrite. */
+    if (!o->preserve_source_peer) {
+        body[OBP_NETID_OFF + 0] = (uint8_t)(o->network_id >> 24);
+        body[OBP_NETID_OFF + 1] = (uint8_t)(o->network_id >> 16);
+        body[OBP_NETID_OFF + 2] = (uint8_t)(o->network_id >> 8);
+        body[OBP_NETID_OFF + 3] = (uint8_t)(o->network_id);
+    }
 
     uint8_t pkt[OBP_DMRD_PKT_LEN];
     memcpy(pkt, body, OBP_DMRD_BODY_LEN);

@@ -60,6 +60,7 @@ peer_port   = 62031
 bind_port   = 62031
 network_id  = 3120000
 passphrase  = "a-strong-shared-secret"
+# preserve_source_peer = false   # optional; see below
 ```
 
 | Field | Meaning |
@@ -69,6 +70,7 @@ passphrase  = "a-strong-shared-secret"
 | `peer_ip` / `peer_port` | The **remote's** address: where `cc2obp` sends OpenBridge traffic, and the source address/port every packet from that peer is checked against on receive. |
 | `bind_port` | **Your own** local UDP port for this peer — independent of `peer_port`. Set it equal to `peer_port` if you want the common symmetric-port convention (as in the example above); set it to something else if this host already has something bound to that port, or you're running more than one peer and need distinct local ports. |
 | `network_id` | A DMR-ID-shaped number `cc2obp` presents as its own identity in outgoing OpenBridge frames. Shows up in the remote's logs/dashboard as the originating system. |
+| `preserve_source_peer` | Optional, default `false`. The DMRD "Repeater ID" field (bytes 11–14) is required by the data protocol, and OpenBridge convention says to fill it with `network_id` (this server's own ID) — that's what `false` does. But the protocol does not define how a receiver uses that field, and the reference implementation (hblink3) does not validate it: authentication is the HMAC plus the source socket, and the field is only logged/reported. Set `true` to instead forward the **originating source-peer** — the peer ID carried in the CC-CC B-on — untouched, so a call's true RF source propagates end-to-end rather than being replaced by this bridge's `network_id`. Most useful when the far OpenBridge end preserves it too. RadioID issues no IDs to infrastructure servers, so an arbitrary `network_id` propagating like a repeater ID is arguably worse than the real source-peer. |
 | `passphrase` | The shared secret for this peer's HMAC-SHA1 frame signing. **Must match exactly** on both ends — OpenBridge has no other authentication. |
 
 **Coordinate with the OpenBridge peer's operator before configuring this:**

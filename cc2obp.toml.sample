@@ -33,6 +33,18 @@ bind_port   = 62031          # OUR OWN local port — independent of peer_port; 
                               # you're testing cc2obp against a fake peer on the same host.
 network_id  = 3120000
 passphrase  = "changeme-a"
+# preserve_source_peer (default false): The DMRD "Repeater ID" field (bytes 11-14)
+# is required by the data protocol, and OpenBridge convention says to fill it with
+# THIS server's network_id. But the protocol does not define how a receiver uses
+# that field and the reference implementation does not validate it (authentication
+# is the HMAC plus the source socket). Left false, cc2obp stamps network_id there
+# on every CC->OBP frame, as the convention prescribes. Set true to instead forward
+# the ORIGINATING source-peer (the peer ID from the CC-CC B-on) untouched, so a
+# call's true RF source propagates end-to-end instead of being replaced by this
+# bridge's ID. Most useful when the far OpenBridge end preserves it too. RadioID
+# issues no IDs to infrastructure servers, so an arbitrary network_id that
+# propagates like a repeater ID is arguably worse than the real source-peer.
+# preserve_source_peer = false
 
 # [[openbridge]]
 # name        = "hblink-b"
@@ -42,6 +54,7 @@ passphrase  = "changeme-a"
 # bind_port   = 62032
 # network_id  = 3120001
 # passphrase  = "changeme-b"
+# preserve_source_peer = false
 
 # ---------------------------------------------------------------------------
 # CC-CC links (§6.2). Any number; each is a complete, self-contained conduit:
