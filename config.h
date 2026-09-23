@@ -30,6 +30,11 @@ typedef struct {
                                      * (bytes 11-14) with network_id on send — forward the
                                      * originating source-peer instead (unvalidated field;
                                      * see obp_send_dmrd / translate.c). Default off. */
+    int      rssi_trailer;         /* if set, SEND the 75-byte DMRD form (53-byte body + BER/RSSI,
+                                     * HMAC over 55) to this peer, carrying the c-Bridge's
+                                     * end-of-call RSSI on the voice terminator. Non-standard:
+                                     * only for a peer that expects it (hblink3 fork with
+                                     * RSSI_TRAILER). Receiving either form needs no switch. Default off. */
 } ObpPeerConfig;
 
 typedef struct {

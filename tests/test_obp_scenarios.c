@@ -258,6 +258,18 @@ static void send_voice_burst(int fd, uint32_t rf_src, const uint8_t stream[4], c
 
 /* ---------------- test scenarios ---------------- */
 
+/* Read OpenBridge packets cc2obp sends the fake peer until one has the given
+ * flags byte; returns its length (0 on timeout) with the packet in buf. */
+static int recv_obp_flags(int fd, uint8_t flags, uint8_t *buf, size_t cap)
+{
+    for (int i = 0; i < 50; i++) {
+        int n = udp_recv_timeout(fd, buf, cap, 2000);
+        if (n <= 0) return 0;
+        if (n > OBP_FLAGS_OFF && buf[OBP_FLAGS_OFF] == flags) return n;
+    }
+    return 0;
+}
+
 static int extract_radio_field(const char *bon_line, uint32_t *radio)
 {
     char marker[64];
@@ -274,7 +286,7 @@ int main(void)
         "[[openbridge]]\n"
         "name = \"fakepeer\"\nenabled = true\n"
         "peer_ip = \"127.0.0.1\"\npeer_port = %d\nbind_port = %d\n"
-        "network_id = 3129999\npassphrase = \"%s\"\n\n"
+        "network_id = 3129999\npassphrase = \"%s\"\nrssi_trailer = true\n\n"
         "[[link]]\n"
         "name = \"link-a\"\nenabled = true\ncross_connect_active = true\n"
         "tgid = %d\nopenbridge_system = \"fakepeer\"\ncc_role = \"inbound\"\n"
@@ -399,6 +411,21 @@ int main(void)
         /* average of 99 and 101 = -100 dBm -> 8.8 fixed point 100 * 256 = 25600 */
         check("B-off carries the call's average RSSI (RSSI=25600)", got_boff4 == 1 && strstr(line, "RSSI=25600"));
         g_rssi_trailer = -1;
+
+        /* ---------------- Scenario D: c-Bridge B-off RSSI -> VOICE_TERM trailer ---------------- */
+        /* A cc-origin call: B-on, then B-off with RSSI=27615 (8.8 fixed point: -107.87 dBm).
+         * With rssi_trailer set, cc2obp sends the 75-byte form, the terminator carrying 108. */
+        char ctl[256];
+        uint8_t obp[128];
+        snprintf(ctl, sizeof ctl, "B01%02dtest 1005 302700 0.0 radioid=1005 peerid=302700 Bee=B0102%dG\n",
+                 CC_LID, TGID);
+        check("B-on written", write(cc_fd, ctl, strlen(ctl)) == (ssize_t)strlen(ctl));
+        int nh = recv_obp_flags(peer_fd, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VHEAD, obp, sizeof obp);
+        check("cc-origin VOICE_HEAD sent in 75-byte form, RSSI 0", nh == OBP_DMRD_EXT_PKT_LEN && obp[OBP_RSSI_OFF] == 0);
+        snprintf(ctl, sizeof ctl, "B%02d00000  LOSS=0/1 RSSI=27615\n", CC_LID);
+        check("B-off written", write(cc_fd, ctl, strlen(ctl)) == (ssize_t)strlen(ctl));
+        int nt = recv_obp_flags(peer_fd, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VTERM, obp, sizeof obp);
+        check("VOICE_TERM carries the B-off RSSI (108 = -108 dBm)", nt == OBP_DMRD_EXT_PKT_LEN && obp[OBP_RSSI_OFF] == 108);
 
         close(cc_fd);
     }

@@ -26,7 +26,8 @@ void translator_cccc_link_up(translator *tr, int link_idx);
 void translator_cccc_link_down(translator *tr, int link_idx);
 void translator_cccc_bon(translator *tr, int link_idx, uint32_t radio_id, uint32_t peer_id,
                          int src_lid, int tgid, char call_type);
-void translator_cccc_boff(translator *tr, int link_idx, int lost, int total);
+/* rssi: the B-off's RSSI= value as sent (8.8 fixed point dB below 0 dBm), 0 if absent. */
+void translator_cccc_boff(translator *tr, int link_idx, int lost, int total, double rssi);
 void translator_cccc_voice(translator *tr, int link_idx, uint16_t seq, uint32_t timestamp,
                            int marker, const uint8_t ambe21[21]);
 

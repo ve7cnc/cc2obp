@@ -115,7 +115,7 @@ int obp_peer_is_enabled(const obp_mux *mx, int peer_idx)
     return mx->active[peer_idx];
 }
 
-void obp_send_dmrd(obp_mux *mx, int peer_idx, uint8_t body[53])
+void obp_send_dmrd(obp_mux *mx, int peer_idx, uint8_t body[53], int rssi)
 {
     if (peer_idx < 0 || peer_idx >= mx->cfg->n_openbridge || mx->fd[peer_idx] < 0) {
         LOGD(LOGN, "obp_send_dmrd: peer idx=%d not enabled/bound — dropped", peer_idx);
@@ -136,12 +136,19 @@ void obp_send_dmrd(obp_mux *mx, int peer_idx, uint8_t body[53])
         body[OBP_NETID_OFF + 3] = (uint8_t)(o->network_id);
     }
 
-    uint8_t pkt[OBP_DMRD_PKT_LEN];
+    uint8_t pkt[OBP_DMRD_EXT_PKT_LEN];
+    int body_len = OBP_DMRD_BODY_LEN;
     memcpy(pkt, body, OBP_DMRD_BODY_LEN);
+    if (o->rssi_trailer) {                 /* BER/RSSI trailer extension (obp_const.h) */
+        pkt[OBP_DMRD_BODY_LEN] = 0;                        /* BER: not reported over CC-CC */
+        pkt[OBP_RSSI_OFF] = (uint8_t)(rssi > 0 && rssi < 256 ? rssi : 0);
+        body_len = OBP_DMRD_EXT_BODY_LEN;
+    }
     hmac_sha1((const uint8_t *)o->passphrase, (size_t)o->passphrase_len,
-              pkt, OBP_DMRD_BODY_LEN, pkt + OBP_DMRD_BODY_LEN);
-    log_wire("obp.wire", "UDP SEND %s:%d %d %s", o->peer_ip, o->peer_port, OBP_DMRD_PKT_LEN, log_hex(pkt, OBP_DMRD_PKT_LEN));
-    udp_sendto(mx->fd[peer_idx], pkt, OBP_DMRD_PKT_LEN, o->peer_ip, o->peer_port);
+              pkt, (size_t)body_len, pkt + body_len);
+    int n = body_len + OBP_HMAC_LEN;
+    log_wire("obp.wire", "UDP SEND %s:%d %d %s", o->peer_ip, o->peer_port, n, log_hex(pkt, n));
+    udp_sendto(mx->fd[peer_idx], pkt, n, o->peer_ip, o->peer_port);
 }
 
 obp_mux *obp_mux_new(Config *cfg, struct translator *tr, ev_loop *loop)

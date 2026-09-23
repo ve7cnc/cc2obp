@@ -45,6 +45,12 @@ passphrase  = "changeme-a"
 # issues no IDs to infrastructure servers, so an arbitrary network_id that
 # propagates like a repeater ID is arguably worse than the real source-peer.
 # preserve_source_peer = false
+# rssi_trailer (default false): send the 75-byte DMRD form (53-byte body + the
+# Homebrew BER/RSSI bytes, HMAC over all 55), so the c-Bridge's end-of-call RSSI
+# (from the CC-CC B-off) reaches this peer on the VOICE_TERM. NON-STANDARD: only
+# for a peer that expects it (an hblink3 with RSSI_TRAILER on this link). Receiving
+# the 75-byte form needs no switch -- it is detected by length.
+# rssi_trailer = false
 
 # [[openbridge]]
 # name        = "hblink-b"

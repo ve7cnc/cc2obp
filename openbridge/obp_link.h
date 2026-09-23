@@ -26,6 +26,8 @@ int obp_peer_is_enabled(const obp_mux *mx, int peer_idx);
  * bytes; bytes OBP_NETID_OFF..+4 are overwritten with that peer's own
  * network_id before HMAC signing and transmission (§12).  No-op (logged at
  * DEBUG) if the peer is disabled/has no socket. */
-void obp_send_dmrd(obp_mux *mx, int peer_idx, uint8_t body[53]);
+/* rssi: RSSI byte (-dBm, 0 = none) for the BER/RSSI trailer, sent only if the
+ * peer has rssi_trailer set (ignored otherwise). */
+void obp_send_dmrd(obp_mux *mx, int peer_idx, uint8_t body[53], int rssi);
 
 #endif /* OBP_LINK_H */

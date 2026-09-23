@@ -394,7 +394,7 @@ static void dispatch_established_line(cccc_mux *mx, cc_link *lk, const char *lin
             return;
         }
         LOGI(LOGN, "link '%s': <- B-off  LOSS=%d/%d RSSI=%s", lcfg->name, lost, total, rssi);
-        translator_cccc_boff(mx->tr, lk->idx, lost, total);
+        translator_cccc_boff(mx->tr, lk->idx, lost, total, rssi[0] ? strtod(rssi, NULL) : 0.0);
     } else {
         LOGD(LOGN, "link '%s': unrecognized control line: %s", lcfg->name, line);
     }
