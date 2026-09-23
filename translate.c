@@ -191,6 +191,8 @@ static void send_obp_voice_term(translator *tr, int link_idx)
  * fixed point dB below 0 dBm (whole dB in the high byte, 1/256ths in the low):
  * sending 5342 (0x14DE) showed in Call Watch as -20.8 dBm, i.e. -(20 + 222/256).
  * Note this differs from the IPSC in-call report, which is in hundredths. */
+#define BOFF_RSSI_MIN  (2 * 256)   /* 8.8 fixed point for -2 dBm; anything stronger is a placeholder */
+
 static double boff_rssi(const call_state *c)
 {
     if (!c->rssi_n) return 0;
@@ -447,8 +449,12 @@ void translator_cccc_boff(translator *tr, int link_idx, int lost, int total, dou
     (void)lost; (void)total;   /* not forwarded — OpenBridge has no B-off analog beyond VOICE_TERM */
     /* The end-of-call RSSI rides the VOICE_TERM's BER/RSSI trailer (peers with
      * rssi_trailer only). B-off RSSI is 8.8 fixed point dB below 0 dBm (see boff_rssi). */
+    /* Values under ~2 dB below 0 dBm aren't receiver measurements: the c-Bridge sends
+     * a placeholder (RSSI=277, ~-1 dBm) for software sources like its parrot, which its
+     * own Call Watch shows as "N/A". The strongest real reading seen is ~-4 dBm (radio
+     * beside the repeater), so treat anything stronger than -2 dBm as no reading. */
     link_runtime *lr = &tr->link[link_idx];
-    if (lr->has_call && lr->call.origin == CALL_ORIGIN_CC && rssi > 0) {
+    if (lr->has_call && lr->call.origin == CALL_ORIGIN_CC && rssi >= BOFF_RSSI_MIN) {
         int dbm = (int)(rssi / 256.0 + 0.5);
         lr->call.term_rssi = dbm > 255 ? 255 : dbm;
     }
