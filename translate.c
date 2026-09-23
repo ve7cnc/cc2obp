@@ -52,6 +52,8 @@ typedef struct {
     int      cc_sent_first;    /* CC-CC RTP marker-bit tracking (obp-origin) */
     int      cc_seq;           /* most recent wall-clock slot index (§10.4, obp-origin) */
     int      obp_seq_pos;      /* outgoing OpenBridge burst-position counter 0..5 (cc-origin) */
+    long     rssi_sum;         /* obp-origin: sum of reported RSSI bytes (-dBm) ... */
+    int      rssi_n;           /* ... and how many bursts reported one, for the B-off */
 } call_state;
 
 typedef struct {
@@ -182,14 +184,25 @@ static void send_obp_voice_term(translator *tr, int link_idx)
 
 /* ---------------- call lifecycle helpers ---------------- */
 
+/* B-off RSSI for an obp-origin call: the call's average RSSI in the c-Bridge's
+ * "raw" form, 0 if none was reported. UNVERIFIED: taken to be the MOTOTRBO IPSC
+ * encoding (positive hundredths of a dB below 0 dBm, e.g. 9852 = -98.52 dBm) —
+ * confirm against the RSSI= of a B-off the c-Bridge sends us. */
+static double boff_rssi(const call_state *c)
+{
+    if (!c->rssi_n) return 0;
+    return (double)c->rssi_sum / c->rssi_n * 100.0;
+}
+
 static void end_obp_origin_call(translator *tr, int link_idx, const char *reason)
 {
     link_runtime *lr = &tr->link[link_idx];
     if (!lr->has_call || lr->call.origin != CALL_ORIGIN_OBP) return;
     int total = lr->call.cc_sent_first ? (lr->call.cc_seq + 1) : 0;
-    cccc_send_boff(tr->cc, link_idx, 0, total, 0);
-    LOGI(LOGN, "link '%s': obp-origin call end (%s) — src=%u total=%d",
-         tr->cfg->link[link_idx].name, reason, lr->call.rf_src, total);
+    cccc_send_boff(tr->cc, link_idx, 0, total, boff_rssi(&lr->call));
+    LOGI(LOGN, "link '%s': obp-origin call end (%s) — src=%u total=%d rssi=%.1f dBm (n=%d)",
+         tr->cfg->link[link_idx].name, reason, lr->call.rf_src, total,
+         lr->call.rssi_n ? -(double)lr->call.rssi_sum / lr->call.rssi_n : 0.0, lr->call.rssi_n);
     lr->has_call = 0;
 }
 
@@ -248,7 +261,8 @@ static void handle_obp_voice_head(translator *tr, int link_idx, uint32_t peer_id
     cccc_send_bon(tr->cc, link_idx, rf_src, peer_id, lcfg->cc_lid, lcfg->tgid, CCCC_CALL_TYPE_GROUP);
 }
 
-static void handle_obp_voice_burst(translator *tr, int link_idx, const uint8_t *payload33, const uint8_t stream[4])
+static void handle_obp_voice_burst(translator *tr, int link_idx, const uint8_t *payload33, const uint8_t stream[4],
+                                   int rssi)
 {
     link_runtime *lr = &tr->link[link_idx];
     if (!lr->has_call || lr->call.origin != CALL_ORIGIN_OBP) {
@@ -262,6 +276,7 @@ static void handle_obp_voice_burst(translator *tr, int link_idx, const uint8_t *
     }
 
     lr->call.last_activity = ev_now(tr->loop);
+    if (rssi > 0) { lr->call.rssi_sum += rssi; lr->call.rssi_n++; }
 
     dmr_bit ambe49[3][49];
     extract_ambe(payload33, ambe49);
@@ -298,7 +313,7 @@ static void handle_obp_voice_term(translator *tr, int link_idx, const uint8_t st
     end_obp_origin_call(tr, link_idx, "VOICE_TERM");
 }
 
-void translator_obp_dmrd_received(translator *tr, int peer_idx, const uint8_t body[53])
+void translator_obp_dmrd_received(translator *tr, int peer_idx, const uint8_t body[53], int rssi)
 {
     uint32_t peer_id = rd32(body + OBP_NETID_OFF);
     uint32_t rf_src  = rd24(body + OBP_SRC_OFF);
@@ -336,7 +351,7 @@ void translator_obp_dmrd_received(translator *tr, int peer_idx, const uint8_t bo
 
     if (is_head) handle_obp_voice_head(tr, link_idx, peer_id, rf_src, stream);
     else if (is_term) handle_obp_voice_term(tr, link_idx, stream);
-    else handle_obp_voice_burst(tr, link_idx, payload33, stream);
+    else handle_obp_voice_burst(tr, link_idx, payload33, stream, rssi);
 }
 
 /* ---------------- CC-CC -> OpenBridge (§10.2) ---------------- */

@@ -182,12 +182,21 @@ static int parse_bon(const char *line, uint32_t *radio, uint32_t *peer, int *src
     return 0;
 }
 
-/* B-off: "B<LID>00000  LOSS=<lost>/<total> RSSI=<rssi>" (§7.2) */
-static int parse_boff(const char *line, int *lost, int *total)
+/* B-off: "B<LID>00000  LOSS=<lost>/<total> RSSI=<rssi>" (§7.2). The RSSI token
+ * is returned verbatim (its encoding is not fully characterized); "" if absent. */
+static int parse_boff(const char *line, int *lost, int *total, char *rssi, size_t rssi_cap)
 {
     const char *loss = strstr(line, "LOSS=");
     if (!loss) return -1;
     if (sscanf(loss, "LOSS=%d/%d", lost, total) != 2) return -1;
+    rssi[0] = 0;
+    const char *r = strstr(line, "RSSI=");
+    if (r) {
+        r += 5;
+        size_t i = 0;
+        while (r[i] && r[i] != ' ' && r[i] != '\r' && r[i] != '\n' && i + 1 < rssi_cap) { rssi[i] = r[i]; i++; }
+        rssi[i] = 0;
+    }
     return 0;
 }
 
@@ -379,12 +388,12 @@ static void dispatch_established_line(cccc_mux *mx, cc_link *lk, const char *lin
              lcfg->name, radio, peer, src_lid, tgid, calltype);
         translator_cccc_bon(mx->tr, lk->idx, radio, peer, src_lid, tgid, calltype);
     } else if (strstr(line, "LOSS=")) {
-        int lost, total;
-        if (parse_boff(line, &lost, &total) != 0) {
+        int lost, total; char rssi[24];
+        if (parse_boff(line, &lost, &total, rssi, sizeof rssi) != 0) {
             LOGW(LOGN, "link '%s': malformed B-off line: %s", lcfg->name, line);
             return;
         }
-        LOGI(LOGN, "link '%s': <- B-off  LOSS=%d/%d", lcfg->name, lost, total);
+        LOGI(LOGN, "link '%s': <- B-off  LOSS=%d/%d RSSI=%s", lcfg->name, lost, total, rssi);
         translator_cccc_boff(mx->tr, lk->idx, lost, total);
     } else {
         LOGD(LOGN, "link '%s': unrecognized control line: %s", lcfg->name, line);

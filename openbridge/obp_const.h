@@ -12,6 +12,14 @@
 #define OBP_HMAC_LEN        20
 #define OBP_DMRD_PKT_LEN    (OBP_DMRD_BODY_LEN + OBP_HMAC_LEN)   /* 73 */
 
+/* Optional BER/RSSI trailer — a private extension, not OpenBridge: a peer that
+ * enables it (hblink3 fork: RSSI_TRAILER) sends the Homebrew 55-byte body —
+ * the 53 bytes above + BER + RSSI — with the HMAC computed over all 55. The
+ * RSSI byte is -dBm (0 = not reported), as in Homebrew/MMDVM. */
+#define OBP_DMRD_EXT_BODY_LEN  55
+#define OBP_DMRD_EXT_PKT_LEN   (OBP_DMRD_EXT_BODY_LEN + OBP_HMAC_LEN)  /* 75 */
+#define OBP_RSSI_OFF           54
+
 #define OBP_SEQ_OFF         4    /* 1 byte */
 #define OBP_SRC_OFF         5    /* 3 bytes: rf_src */
 #define OBP_DST_OFF         8    /* 3 bytes: dst_id (TGID) */

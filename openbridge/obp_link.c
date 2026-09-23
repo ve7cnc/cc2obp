@@ -46,9 +46,12 @@ static void on_obp_readable(ev_loop *loop, int fd, void *ud)
     if (n < 4 || memcmp(buf, "DMRD", 4) != 0) return;
     log_wire("obp.wire", "UDP RECV %s:%d %d %s", src_ip, src_port, n, log_hex(buf, n));
 
-    if (n != OBP_DMRD_PKT_LEN) {
-        LOGD(LOGN, "peer '%s': unexpected length %d (want %d) from %s:%d — dropped",
-             o->name, n, OBP_DMRD_PKT_LEN, src_ip, src_port);
+    int body_len;
+    if (n == OBP_DMRD_PKT_LEN) body_len = OBP_DMRD_BODY_LEN;
+    else if (n == OBP_DMRD_EXT_PKT_LEN) body_len = OBP_DMRD_EXT_BODY_LEN;   /* + BER/RSSI */
+    else {
+        LOGD(LOGN, "peer '%s': unexpected length %d (want %d or %d) from %s:%d — dropped",
+             o->name, n, OBP_DMRD_PKT_LEN, OBP_DMRD_EXT_PKT_LEN, src_ip, src_port);
         return;
     }
     if (strcmp(src_ip, o->peer_ip) != 0 || src_port != o->peer_port) {
@@ -59,8 +62,8 @@ static void on_obp_readable(ev_loop *loop, int fd, void *ud)
 
     uint8_t expect[OBP_HMAC_LEN];
     hmac_sha1((const uint8_t *)o->passphrase, (size_t)o->passphrase_len,
-              buf, OBP_DMRD_BODY_LEN, expect);
-    if (!ct_eq(expect, buf + OBP_DMRD_BODY_LEN, OBP_HMAC_LEN)) {
+              buf, (size_t)body_len, expect);
+    if (!ct_eq(expect, buf + body_len, OBP_HMAC_LEN)) {
         LOGW(LOGN, "peer '%s': HMAC verification failed — dropped", o->name);
         return;
     }
@@ -74,7 +77,8 @@ static void on_obp_readable(ev_loop *loop, int fd, void *ud)
         return;
     }
 
-    translator_obp_dmrd_received(mx->tr, idx, buf);
+    int rssi = (body_len == OBP_DMRD_EXT_BODY_LEN) ? buf[OBP_RSSI_OFF] : 0;
+    translator_obp_dmrd_received(mx->tr, idx, buf, rssi);
 }
 
 static int bind_peer(obp_mux *mx, int idx)

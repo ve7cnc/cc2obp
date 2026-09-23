@@ -31,6 +31,7 @@ void translator_cccc_voice(translator *tr, int link_idx, uint16_t seq, uint32_t 
                            int marker, const uint8_t ambe21[21]);
 
 /* ---- OpenBridge side callback (called by obp_link.c), by index into Config.openbridge[] ---- */
-void translator_obp_dmrd_received(translator *tr, int peer_idx, const uint8_t body53[53]);
+/* rssi: the optional BER/RSSI trailer's RSSI byte (-dBm), 0 when absent/unreported. */
+void translator_obp_dmrd_received(translator *tr, int peer_idx, const uint8_t body53[53], int rssi);
 
 #endif /* TRANSLATE_H */

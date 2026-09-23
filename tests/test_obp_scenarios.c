@@ -195,6 +195,10 @@ static void build_voice_burst_payload(const uint8_t emb[4][4], int pos, uint8_t 
     dmr_bits_to_bytes(fb, 264, out33);
 }
 
+/* >= 0: send the 75-byte form with a BER/RSSI trailer carrying this RSSI byte
+ * (the hblink3 RSSI_TRAILER extension); < 0: standard 73-byte OpenBridge. */
+static int g_rssi_trailer = -1;
+
 static void send_dmrd(int fd, uint8_t seq, uint32_t rf_src, uint32_t dst_id, uint8_t flags,
                       const uint8_t stream[4], const uint8_t payload33[33], uint32_t sender_network_id)
 {
@@ -209,10 +213,16 @@ static void send_dmrd(int fd, uint8_t seq, uint32_t rf_src, uint32_t dst_id, uin
     memcpy(body + OBP_STREAM_OFF, stream, 4);
     memcpy(body + OBP_PAYLOAD_OFF, payload33, 33);
 
-    uint8_t pkt[OBP_DMRD_PKT_LEN];
+    uint8_t pkt[OBP_DMRD_EXT_PKT_LEN];
+    size_t body_len = OBP_DMRD_BODY_LEN;
     memcpy(pkt, body, OBP_DMRD_BODY_LEN);
-    hmac_sha1((const uint8_t *)PASSPHRASE, strlen(PASSPHRASE), pkt, OBP_DMRD_BODY_LEN, pkt + OBP_DMRD_BODY_LEN);
-    udp_send_to(fd, CC2OBP_BIND_PORT, pkt, OBP_DMRD_PKT_LEN);
+    if (g_rssi_trailer >= 0) {
+        pkt[OBP_DMRD_BODY_LEN] = 0;                          /* BER */
+        pkt[OBP_RSSI_OFF] = (uint8_t)g_rssi_trailer;
+        body_len = OBP_DMRD_EXT_BODY_LEN;
+    }
+    hmac_sha1((const uint8_t *)PASSPHRASE, strlen(PASSPHRASE), pkt, body_len, pkt + body_len);
+    udp_send_to(fd, CC2OBP_BIND_PORT, pkt, body_len + OBP_HMAC_LEN);
 }
 
 static void send_voice_head(int fd, uint32_t rf_src, const uint8_t stream[4], uint8_t emb_out[4][4])
@@ -332,6 +342,7 @@ int main(void)
         send_voice_term(peer_fd, 1002, stream2);
         int got_boff2 = tcp_read_line(&rd, line, sizeof line, 2000);
         check("clean VOICE_TERM produced a B-off", got_boff2 == 1 && strstr(line, "LOSS="));
+        check("B-off without an RSSI trailer reports RSSI=0", got_boff2 == 1 && strstr(line, "RSSI=0"));
 
         /* ---------------- Scenario B: seq/ts gap consistency (§10.4/§15) ---------------- */
         uint8_t stream3[4] = {0x03,0x03,0x03,0x03};
@@ -368,6 +379,26 @@ int main(void)
 
         send_voice_term(peer_fd, 1003, stream3);
         tcp_read_line(&rd, line, sizeof line, 2000);   /* drain final B-off */
+
+        /* ---------------- Scenario C: BER/RSSI trailer -> B-off RSSI ---------------- */
+        uint8_t stream4[4] = {0x04,0x04,0x04,0x04};
+        uint8_t emb4[4][4];
+        uint8_t pktv[64];
+        g_rssi_trailer = 0;                                  /* header: no reading yet */
+        send_voice_head(peer_fd, 1004, stream4, emb4);
+        int got_bon4 = tcp_read_line(&rd, line, sizeof line, 2000);
+        check("75-byte (RSSI trailer) VOICE_HEAD accepted", got_bon4 == 1 && strstr(line, "Bee="));
+        g_rssi_trailer = 99;
+        send_voice_burst(peer_fd, 1004, stream4, emb4, 0);
+        check("75-byte voice burst relayed", udp_recv_timeout(voice_fd, pktv, sizeof pktv, 2000) == 33);
+        g_rssi_trailer = 101;
+        send_voice_burst(peer_fd, 1004, stream4, emb4, 1);
+        udp_recv_timeout(voice_fd, pktv, sizeof pktv, 2000);
+        send_voice_term(peer_fd, 1004, stream4);
+        int got_boff4 = tcp_read_line(&rd, line, sizeof line, 2000);
+        /* average of 99 and 101 = -100.00 dBm -> raw hundredths 10000 */
+        check("B-off carries the call's average RSSI (RSSI=10000)", got_boff4 == 1 && strstr(line, "RSSI=10000"));
+        g_rssi_trailer = -1;
 
         close(cc_fd);
     }
