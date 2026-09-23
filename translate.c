@@ -185,13 +185,14 @@ static void send_obp_voice_term(translator *tr, int link_idx)
 /* ---------------- call lifecycle helpers ---------------- */
 
 /* B-off RSSI for an obp-origin call: the call's average RSSI in the c-Bridge's
- * "raw" form, 0 if none was reported. UNVERIFIED: taken to be the MOTOTRBO IPSC
- * encoding (positive hundredths of a dB below 0 dBm, e.g. 9852 = -98.52 dBm) —
- * confirm against the RSSI= of a B-off the c-Bridge sends us. */
+ * "raw" form, 0 if none was reported. The c-Bridge reads it as unsigned 8.8
+ * fixed point dB below 0 dBm (whole dB in the high byte, 1/256ths in the low):
+ * sending 5342 (0x14DE) showed in Call Watch as -20.8 dBm, i.e. -(20 + 222/256).
+ * Note this differs from the IPSC in-call report, which is in hundredths. */
 static double boff_rssi(const call_state *c)
 {
     if (!c->rssi_n) return 0;
-    return (double)c->rssi_sum / c->rssi_n * 100.0;
+    return (double)c->rssi_sum / c->rssi_n * 256.0;
 }
 
 static void end_obp_origin_call(translator *tr, int link_idx, const char *reason)

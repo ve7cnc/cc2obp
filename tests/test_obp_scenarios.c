@@ -396,8 +396,8 @@ int main(void)
         udp_recv_timeout(voice_fd, pktv, sizeof pktv, 2000);
         send_voice_term(peer_fd, 1004, stream4);
         int got_boff4 = tcp_read_line(&rd, line, sizeof line, 2000);
-        /* average of 99 and 101 = -100.00 dBm -> raw hundredths 10000 */
-        check("B-off carries the call's average RSSI (RSSI=10000)", got_boff4 == 1 && strstr(line, "RSSI=10000"));
+        /* average of 99 and 101 = -100 dBm -> 8.8 fixed point 100 * 256 = 25600 */
+        check("B-off carries the call's average RSSI (RSSI=25600)", got_boff4 == 1 && strstr(line, "RSSI=25600"));
         g_rssi_trailer = -1;
 
         close(cc_fd);
