@@ -55,6 +55,7 @@ typedef struct {
     long     rssi_sum;         /* obp-origin: sum of reported RSSI bytes (-dBm) ... */
     int      rssi_n;           /* ... and how many bursts reported one, for the B-off */
     int      term_rssi;        /* cc-origin: B-off RSSI as -dBm, for the VOICE_TERM's trailer */
+    int      term_loss;        /* cc-origin: B-off LOSS as 1 + 2 x percent (0 = none), same */
 } call_state;
 
 typedef struct {
@@ -147,7 +148,7 @@ static void extract_ambe(const uint8_t payload33[33], dmr_bit ambe49[3][49])
 
 /* ---------------- OpenBridge DMRD frame send (§10.2, §16) ---------------- */
 
-static void send_dmrd(translator *tr, int link_idx, uint8_t flags, const uint8_t payload33[33], int rssi)
+static void send_dmrd(translator *tr, int link_idx, uint8_t flags, const uint8_t payload33[33], int ber, int rssi)
 {
     const LinkConfig *lcfg = &tr->cfg->link[link_idx];
     link_runtime *lr = &tr->link[link_idx];
@@ -166,14 +167,14 @@ static void send_dmrd(translator *tr, int link_idx, uint8_t flags, const uint8_t
     memcpy(body + 16, lr->call.stream_id, 4);
     memcpy(body + 20, payload33, 33);
 
-    obp_send_dmrd(tr->ob, peer_idx, body, rssi);
+    obp_send_dmrd(tr->ob, peer_idx, body, ber, rssi);
 }
 
 static void send_obp_voice_head(translator *tr, int link_idx)
 {
     uint8_t payload33[33];
     build_head_term_payload(tr->link[link_idx].call.lc, 0, payload33);
-    send_dmrd(tr, link_idx, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VHEAD, payload33, 0);
+    send_dmrd(tr, link_idx, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VHEAD, payload33, 0, 0);
 }
 
 static void send_obp_voice_term(translator *tr, int link_idx)
@@ -181,7 +182,7 @@ static void send_obp_voice_term(translator *tr, int link_idx)
     uint8_t payload33[33];
     build_head_term_payload(tr->link[link_idx].call.lc, 1, payload33);
     send_dmrd(tr, link_idx, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VTERM, payload33,
-              tr->link[link_idx].call.term_rssi);
+              tr->link[link_idx].call.term_loss, tr->link[link_idx].call.term_rssi);
 }
 
 /* ---------------- call lifecycle helpers ---------------- */
@@ -216,9 +217,10 @@ static void end_cc_origin_call(translator *tr, int link_idx, const char *reason)
     link_runtime *lr = &tr->link[link_idx];
     if (!lr->has_call || lr->call.origin != CALL_ORIGIN_CC) return;
     send_obp_voice_term(tr, link_idx);
-    LOGI(LOGN, "link '%s': cc-origin call end (%s) — src=%u rssi=%s%d dBm",
+    LOGI(LOGN, "link '%s': cc-origin call end (%s) — src=%u rssi=%s%d dBm loss=%.1f%%",
          tr->cfg->link[link_idx].name, reason, lr->call.rf_src,
-         lr->call.term_rssi ? "-" : "", lr->call.term_rssi);
+         lr->call.term_rssi ? "-" : "", lr->call.term_rssi,
+         lr->call.term_loss ? (lr->call.term_loss - 1) / 2.0 : 0.0);
     lr->has_call = 0;
 }
 
@@ -440,13 +442,20 @@ void translator_cccc_voice(translator *tr, int link_idx, uint16_t seq, uint32_t 
     uint8_t payload33[33]; dmr_bits_to_bytes(fb, 264, payload33);
 
     uint8_t flags = (pos == 0) ? OBPF_FRAMETYPE_VOICESYNC : (uint8_t)(OBPF_FRAMETYPE_VOICE | pos);
-    send_dmrd(tr, link_idx, flags, payload33, 0);
+    send_dmrd(tr, link_idx, flags, payload33, 0, 0);
     lr->call.obp_seq_pos++;
 }
 
 void translator_cccc_boff(translator *tr, int link_idx, int lost, int total, double rssi)
 {
-    (void)lost; (void)total;   /* not forwarded — OpenBridge has no B-off analog beyond VOICE_TERM */
+    /* The B-off's LOSS=lost/total rides the VOICE_TERM's BER byte (peers with
+     * rssi_trailer only) as 1 + 2 x percent -- 0.5 % steps, 0 = not reported --
+     * so the peer can show the c-Bridge's own loss figure for the call. */
+    link_runtime *lr0 = &tr->link[link_idx];
+    if (lr0->has_call && lr0->call.origin == CALL_ORIGIN_CC && total > 0 && lost >= 0) {
+        int code = 1 + (int)(200.0 * lost / total + 0.5);
+        lr0->call.term_loss = code > 255 ? 255 : code;
+    }
     /* The end-of-call RSSI rides the VOICE_TERM's BER/RSSI trailer (peers with
      * rssi_trailer only). B-off RSSI is 8.8 fixed point dB below 0 dBm (see boff_rssi). */
     /* Values under ~2 dB below 0 dBm aren't receiver measurements: the c-Bridge sends

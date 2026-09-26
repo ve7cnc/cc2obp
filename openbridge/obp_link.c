@@ -115,7 +115,7 @@ int obp_peer_is_enabled(const obp_mux *mx, int peer_idx)
     return mx->active[peer_idx];
 }
 
-void obp_send_dmrd(obp_mux *mx, int peer_idx, uint8_t body[53], int rssi)
+void obp_send_dmrd(obp_mux *mx, int peer_idx, uint8_t body[53], int ber, int rssi)
 {
     if (peer_idx < 0 || peer_idx >= mx->cfg->n_openbridge || mx->fd[peer_idx] < 0) {
         LOGD(LOGN, "obp_send_dmrd: peer idx=%d not enabled/bound — dropped", peer_idx);
@@ -140,7 +140,7 @@ void obp_send_dmrd(obp_mux *mx, int peer_idx, uint8_t body[53], int rssi)
     int body_len = OBP_DMRD_BODY_LEN;
     memcpy(pkt, body, OBP_DMRD_BODY_LEN);
     if (o->rssi_trailer) {                 /* BER/RSSI trailer extension (obp_const.h) */
-        pkt[OBP_DMRD_BODY_LEN] = 0;                        /* BER: not reported over CC-CC */
+        pkt[OBP_DMRD_BODY_LEN] = (uint8_t)(ber > 0 && ber < 256 ? ber : 0);
         pkt[OBP_RSSI_OFF] = (uint8_t)(rssi > 0 && rssi < 256 ? rssi : 0);
         body_len = OBP_DMRD_EXT_BODY_LEN;
     }

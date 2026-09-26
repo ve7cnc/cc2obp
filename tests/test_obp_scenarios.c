@@ -422,10 +422,12 @@ int main(void)
         check("B-on written", write(cc_fd, ctl, strlen(ctl)) == (ssize_t)strlen(ctl));
         int nh = recv_obp_flags(peer_fd, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VHEAD, obp, sizeof obp);
         check("cc-origin VOICE_HEAD sent in 75-byte form, RSSI 0", nh == OBP_DMRD_EXT_PKT_LEN && obp[OBP_RSSI_OFF] == 0);
-        snprintf(ctl, sizeof ctl, "B%02d00000  LOSS=0/1 RSSI=27615\n", CC_LID);
+        snprintf(ctl, sizeof ctl, "B%02d00000  LOSS=1/39 RSSI=27615\n", CC_LID);
         check("B-off written", write(cc_fd, ctl, strlen(ctl)) == (ssize_t)strlen(ctl));
         int nt = recv_obp_flags(peer_fd, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VTERM, obp, sizeof obp);
         check("VOICE_TERM carries the B-off RSSI (108 = -108 dBm)", nt == OBP_DMRD_EXT_PKT_LEN && obp[OBP_RSSI_OFF] == 108);
+        /* LOSS=1/39 = 2.56 % -> 1 + round(5.13) = 6 (reads back as 2.5 %) */
+        check("VOICE_TERM carries the B-off LOSS on the BER byte (6 = 2.5 %)", nt == OBP_DMRD_EXT_PKT_LEN && obp[OBP_DMRD_BODY_LEN] == 6);
 
         /* The c-Bridge's placeholder for software sources (its parrot): RSSI=277, ~-1 dBm.
          * Not a measurement -- the VOICE_TERM must carry no RSSI (0). */
@@ -437,6 +439,7 @@ int main(void)
         check("B-off (parrot) written", write(cc_fd, ctl, strlen(ctl)) == (ssize_t)strlen(ctl));
         nt = recv_obp_flags(peer_fd, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VTERM, obp, sizeof obp);
         check("placeholder RSSI=277 is not relayed (RSSI byte 0)", nt == OBP_DMRD_EXT_PKT_LEN && obp[OBP_RSSI_OFF] == 0);
+        check("LOSS=0/1 is relayed as 0 % (BER byte 1)", nt == OBP_DMRD_EXT_PKT_LEN && obp[OBP_DMRD_BODY_LEN] == 1);
 
         close(cc_fd);
     }
