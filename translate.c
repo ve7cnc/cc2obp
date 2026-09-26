@@ -55,7 +55,11 @@ typedef struct {
     long     rssi_sum;         /* obp-origin: sum of reported RSSI bytes (-dBm) ... */
     int      rssi_n;           /* ... and how many bursts reported one, for the B-off */
     int      term_rssi;        /* cc-origin: B-off RSSI as -dBm, for the VOICE_TERM's trailer */
-    int      term_loss;        /* cc-origin: B-off LOSS as 1 + 2 x percent (0 = none), same */
+    int      term_loss;        /* cc-origin: B-off LOSS as a loss code (see loss_code), same */
+    int      cc_rx_have;       /* cc-origin: CC-CC RTP sequence seen yet? */
+    long     cc_rx_first;      /* ... first and highest (unwrapped) sequence number, */
+    long     cc_rx_max;
+    long     cc_rx_recv;       /* ... and packets received, for the running loss */
 } call_state;
 
 typedef struct {
@@ -177,12 +181,34 @@ static void send_obp_voice_head(translator *tr, int link_idx)
     send_dmrd(tr, link_idx, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VHEAD, payload33, 0, 0);
 }
 
+/* Loss as carried in the BER byte of the BER/RSSI trailer (a private convention with
+ * the hblink3 fork): 0 = not measured, else 1 + 10 x percent (0.1 % steps), capped at
+ * 255 (= 25.4 % or more). */
+static int loss_code(long lost, long expected)
+{
+    if (expected <= 0) return 0;
+    if (lost < 0) lost = 0;
+    int c = 1 + (int)(1000.0 * (double)lost / (double)expected + 0.5);
+    return c > 255 ? 255 : c;
+}
+
+/* Running loss of a cc-origin call on the c-Bridge -> us leg, from the CC-CC RTP
+ * sequence numbers. */
+static int cc_rx_loss_code(const call_state *c)
+{
+    if (!c->cc_rx_have) return 0;
+    long expected = c->cc_rx_max - c->cc_rx_first + 1;
+    return loss_code(expected - c->cc_rx_recv, expected);
+}
+
 static void send_obp_voice_term(translator *tr, int link_idx)
 {
     uint8_t payload33[33];
     build_head_term_payload(tr->link[link_idx].call.lc, 1, payload33);
+    /* The c-Bridge's own figure from the B-off when there was one, else ours. */
+    const call_state *c = &tr->link[link_idx].call;
     send_dmrd(tr, link_idx, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VTERM, payload33,
-              tr->link[link_idx].call.term_loss, tr->link[link_idx].call.term_rssi);
+              c->term_loss ? c->term_loss : cc_rx_loss_code(c), c->term_rssi);
 }
 
 /* ---------------- call lifecycle helpers ---------------- */
@@ -220,7 +246,7 @@ static void end_cc_origin_call(translator *tr, int link_idx, const char *reason)
     LOGI(LOGN, "link '%s': cc-origin call end (%s) — src=%u rssi=%s%d dBm loss=%.1f%%",
          tr->cfg->link[link_idx].name, reason, lr->call.rf_src,
          lr->call.term_rssi ? "-" : "", lr->call.term_rssi,
-         lr->call.term_loss ? (lr->call.term_loss - 1) / 2.0 : 0.0);
+         lr->call.term_loss ? (lr->call.term_loss - 1) / 10.0 : 0.0);
     lr->has_call = 0;
 }
 
@@ -411,7 +437,7 @@ void translator_cccc_bon(translator *tr, int link_idx, uint32_t radio_id, uint32
 void translator_cccc_voice(translator *tr, int link_idx, uint16_t seq, uint32_t timestamp,
                            int marker, const uint8_t ambe21[21])
 {
-    (void)seq; (void)timestamp; (void)marker;   /* relay as-is; no re-pacing/jitter buffer (§1, §10.4) */
+    (void)timestamp; (void)marker;   /* relay as-is; no re-pacing/jitter buffer (§1, §10.4) */
     link_runtime *lr = &tr->link[link_idx];
     const LinkConfig *lcfg = &tr->cfg->link[link_idx];
     if (!lr->has_call || lr->call.origin != CALL_ORIGIN_CC) {
@@ -421,6 +447,19 @@ void translator_cccc_voice(translator *tr, int link_idx, uint16_t seq, uint32_t 
     if (!lcfg->cross_connect_active) return;   /* already logged once at B-on time */
 
     lr->call.last_activity = ev_now(tr->loop);
+
+    /* Loss accounting from the RTP sequence (not used for relaying: packets are
+     * forwarded on arrival, gaps and all). */
+    call_state *c = &lr->call;
+    if (!c->cc_rx_have) {
+        c->cc_rx_have = 1; c->cc_rx_first = seq; c->cc_rx_max = seq; c->cc_rx_recv = 1;
+    } else {
+        uint16_t d = (uint16_t)(seq - (uint16_t)c->cc_rx_max);
+        if (d != 0) {                                /* a duplicate isn't counted */
+            if (d < 0x8000) c->cc_rx_max += d;       /* forward (unwrapped) */
+            c->cc_rx_recv++;                         /* late/reordered counts as received */
+        }
+    }
 
     dmr_bit ambe49[3][49];
     cccc_ambe_unpack21(ambe21, ambe49);
@@ -442,20 +481,18 @@ void translator_cccc_voice(translator *tr, int link_idx, uint16_t seq, uint32_t 
     uint8_t payload33[33]; dmr_bits_to_bytes(fb, 264, payload33);
 
     uint8_t flags = (pos == 0) ? OBPF_FRAMETYPE_VOICESYNC : (uint8_t)(OBPF_FRAMETYPE_VOICE | pos);
-    send_dmrd(tr, link_idx, flags, payload33, 0, 0);
+    send_dmrd(tr, link_idx, flags, payload33, cc_rx_loss_code(c), 0);
     lr->call.obp_seq_pos++;
 }
 
 void translator_cccc_boff(translator *tr, int link_idx, int lost, int total, double rssi)
 {
     /* The B-off's LOSS=lost/total rides the VOICE_TERM's BER byte (peers with
-     * rssi_trailer only) as 1 + 2 x percent -- 0.5 % steps, 0 = not reported --
-     * so the peer can show the c-Bridge's own loss figure for the call. */
+     * rssi_trailer only) as a loss code, so the peer can show the c-Bridge's own
+     * loss figure for the call. */
     link_runtime *lr0 = &tr->link[link_idx];
-    if (lr0->has_call && lr0->call.origin == CALL_ORIGIN_CC && total > 0 && lost >= 0) {
-        int code = 1 + (int)(200.0 * lost / total + 0.5);
-        lr0->call.term_loss = code > 255 ? 255 : code;
-    }
+    if (lr0->has_call && lr0->call.origin == CALL_ORIGIN_CC && total > 0 && lost >= 0)
+        lr0->call.term_loss = loss_code(lost, total);
     /* The end-of-call RSSI rides the VOICE_TERM's BER/RSSI trailer (peers with
      * rssi_trailer only). B-off RSSI is 8.8 fixed point dB below 0 dBm (see boff_rssi). */
     /* Values under ~2 dB below 0 dBm aren't receiver measurements: the c-Bridge sends

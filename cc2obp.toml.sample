@@ -47,7 +47,8 @@ passphrase  = "changeme-a"
 # preserve_source_peer = false
 # rssi_trailer (default false): send the 75-byte DMRD form (53-byte body + the
 # Homebrew BER/RSSI bytes, HMAC over all 55), so the c-Bridge's end-of-call RSSI
-# and loss (from the CC-CC B-off; loss as 1 + 2 x percent in the BER byte) reach
+# and loss (loss code 1 + 10 x percent in the BER byte: running, from the CC-CC
+# RTP sequence, then the B-off's own figure on the VOICE_TERM) reach
 # this peer on the VOICE_TERM. NON-STANDARD: only
 # for a peer that expects it (an hblink3 with RSSI_TRAILER on this link). Receiving
 # the 75-byte form needs no switch -- it is detected by length.

@@ -426,8 +426,8 @@ int main(void)
         check("B-off written", write(cc_fd, ctl, strlen(ctl)) == (ssize_t)strlen(ctl));
         int nt = recv_obp_flags(peer_fd, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VTERM, obp, sizeof obp);
         check("VOICE_TERM carries the B-off RSSI (108 = -108 dBm)", nt == OBP_DMRD_EXT_PKT_LEN && obp[OBP_RSSI_OFF] == 108);
-        /* LOSS=1/39 = 2.56 % -> 1 + round(5.13) = 6 (reads back as 2.5 %) */
-        check("VOICE_TERM carries the B-off LOSS on the BER byte (6 = 2.5 %)", nt == OBP_DMRD_EXT_PKT_LEN && obp[OBP_DMRD_BODY_LEN] == 6);
+        /* LOSS=1/39 = 2.56 % -> 1 + round(25.6) = 27 (reads back as 2.6 %) */
+        check("VOICE_TERM carries the B-off LOSS on the BER byte (27 = 2.6 %)", nt == OBP_DMRD_EXT_PKT_LEN && obp[OBP_DMRD_BODY_LEN] == 27);
 
         /* The c-Bridge's placeholder for software sources (its parrot): RSSI=277, ~-1 dBm.
          * Not a measurement -- the VOICE_TERM must carry no RSSI (0). */
@@ -440,6 +440,32 @@ int main(void)
         nt = recv_obp_flags(peer_fd, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VTERM, obp, sizeof obp);
         check("placeholder RSSI=277 is not relayed (RSSI byte 0)", nt == OBP_DMRD_EXT_PKT_LEN && obp[OBP_RSSI_OFF] == 0);
         check("LOSS=0/1 is relayed as 0 % (BER byte 1)", nt == OBP_DMRD_EXT_PKT_LEN && obp[OBP_DMRD_BODY_LEN] == 1);
+
+        /* ---------------- Scenario E: running loss from the CC-CC RTP sequence ---------------- */
+        /* Voice with RTP seq 0, 1, 2, 4 (3 missing): the 4th relayed burst carries
+         * 1 lost of 5 expected = 20 % -> loss code 201. */
+        snprintf(ctl, sizeof ctl, "B01%02dtest 1007 302700 0.0 radioid=1007 peerid=302700 Bee=B0102%dG\n",
+                 CC_LID, TGID);
+        check("B-on (seq test) written", write(cc_fd, ctl, strlen(ctl)) == (ssize_t)strlen(ctl));
+        recv_obp_flags(peer_fd, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VHEAD, obp, sizeof obp);
+        int last_code = -1, bursts = 0;
+        const uint16_t seqs[] = {0, 1, 2, 4};
+        for (int i = 0; i < 4; i++) {
+            uint8_t rtp[12 + 21] = {0};
+            rtp[0] = 0x80; rtp[1] = i == 0 ? 0xDE : 0x5E;
+            rtp[2] = (uint8_t)(seqs[i] >> 8); rtp[3] = (uint8_t)seqs[i];
+            uint32_t ts = 480u * seqs[i];
+            rtp[4] = (uint8_t)(ts >> 24); rtp[5] = (uint8_t)(ts >> 16); rtp[6] = (uint8_t)(ts >> 8); rtp[7] = (uint8_t)ts;
+            rtp[8] = 0x11; rtp[9] = 0x11; rtp[10] = 0x22; rtp[11] = 0x22;     /* link-a's sync source */
+            udp_send_to(voice_fd, 42422, rtp, sizeof rtp);
+            int n = udp_recv_timeout(peer_fd, obp, sizeof obp, 2000);
+            if (n == OBP_DMRD_EXT_PKT_LEN) { bursts++; last_code = obp[OBP_DMRD_BODY_LEN]; }
+        }
+        check("cc-origin voice relayed (4 bursts)", bursts == 4);
+        check("running loss on the voice bursts (201 = 20 %)", last_code == 201);
+        snprintf(ctl, sizeof ctl, "B%02d00000  LOSS=0/5 RSSI=0\n", CC_LID);
+        check("B-off (seq test) written", write(cc_fd, ctl, strlen(ctl)) == (ssize_t)strlen(ctl));
+        recv_obp_flags(peer_fd, OBPF_FRAMETYPE_DATASYNC | OBPF_SLT_VTERM, obp, sizeof obp);
 
         close(cc_fd);
     }
